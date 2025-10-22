@@ -44,8 +44,9 @@
         pre.innerText = message;
         logs.append(pre);
       };
-
-      const audio = (url) => {
+      /** @type { (blob: Blob) => void } */
+      const audio = (blob) => {
+        const url = URL.createObjectURL(blob);
         const start = document.createElement("button");
         start.innerText = "play";
         const stop = document.createElement("button");
@@ -57,8 +58,14 @@
             audio.pause();
           };
         };
+        const save = document.createElement("a");
+        save.innerText = "save";
+        save.href = url;
+        save.download = `sample-audio.opus`;
+
         logs.append(start);
         logs.append(stop);
+        logs.append(save);
       };
 
       const html = {
@@ -119,13 +126,10 @@
             updateDisplay();
           };
           recorder.onstop = () => {
-            updateDisplay();
+            const blob = new Blob(buffer, { type: buffer[0].type });
+            audio(blob);
 
-            const blob = new Blob(buffer);
-            readBlobAsBase64(blob).then((base64) => {
-              audio(`data:audio/webm;codecs=opus;base64,${base64}`);
-              buffer.length = 0;
-            });
+            updateDisplay();
           };
           recorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
