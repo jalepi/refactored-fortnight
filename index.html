@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audio Recorder</title>
+  </head>
+  <body>
+    <div>
+      <button id="open">Open</button>
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+      <button id="reset">Reset</button>
+      <label>Recording: <span id="recording"></span></label>
+    </div>
+
+    <div id="logs"></div>
+
+    <script type="text/javascript">
+      const logs = document.getElementById("logs");
+
+      /** @type {(blob: Blob) => Promise<string>} */
+      const readBlobAsBase64 = (blob) =>
+        new Promise((resolve, reject) => {
+          try {
+            const reader = new FileReader();
+            reader.onloadend = function () {
+              const base64 = reader.result.split(",")[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(blob);
+          } catch (error) {
+            reject(error);
+          }
+        });
+
+      const log = (message) => {
+        const time = performance.timeOrigin + performance.now();
+        console.log(`${new Date(time).toISOString()}: ${message}`);
+      };
+
+      const pre = (message) => {
+        const pre = document.createElement("pre");
+        pre.innerText = message;
+        logs.append(pre);
+      };
+
+      const audio = (url) => {
+        const start = document.createElement("button");
+        start.innerText = "play";
+        const stop = document.createElement("button");
+        stop.innerText = "stop";
+        start.onclick = () => {
+          const audio = new Audio(url);
+          audio.play();
+          stop.onclick = () => {
+            audio.pause();
+          };
+        };
+        logs.append(start);
+        logs.append(stop);
+      };
+
+      const html = {
+        /** @type {HTMLButtonElement} */
+        open: document.getElementById("open"),
+        /** @type {HTMLButtonElement} */
+        start: document.getElementById("start"),
+        /** @type {HTMLButtonElement} */
+        stop: document.getElementById("stop"),
+        /** @type {HTMLButtonElement} */
+        reset: document.getElementById("reset"),
+        /** @type {HTMLSpanElement} */
+        recording: document.getElementById("recording"),
+      };
+
+      const can = {
+        open: () => !recorder,
+        start: () => recorder && recorder.state !== "recording",
+        stop: () => recorder && recorder.state === "recording",
+        reset: () => recorder && recorder.stream.active,
+      };
+
+      /** @type {MediaRecorder} */
+      let recorder;
+
+      let isRecording = false;
+      /** @type { Blob[] } */
+      const buffer = [];
+
+      const updateDisplay = () => {
+        html.open.disabled = !can.open();
+        html.start.disabled = !can.start();
+        html.stop.disabled = !can.stop();
+        html.reset.disabled = !can.reset();
+        html.recording.innerText = can.stop() ? "ON" : "OFF";
+      };
+
+      const functions = {
+        async open() {
+          const time = performance.now();
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+
+          log(`MediaStream opened in ${performance.now() - time}ms`);
+
+          const mimeType = "audio/webm; codecs=opus";
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            log("Opus is not supported");
+            return;
+          }
+          recorder = new MediaRecorder(stream, {
+            mimeType,
+            audioBitsPerSecond: 48_000,
+          });
+          recorder.onstart = () => {
+            updateDisplay();
+          };
+          recorder.onstop = () => {
+            updateDisplay();
+
+            const blob = new Blob(buffer);
+            readBlobAsBase64(blob).then((base64) => {
+              audio(`data:audio/webm;codecs=opus;base64,${base64}`);
+              buffer.length = 0;
+            });
+          };
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              console.log(event.data);
+              buffer.push(event.data);
+              readBlobAsBase64(event.data).then((base64) => {
+                pre(
+                  JSON.stringify({
+                    timeStamp: event.timeStamp.toFixed(3),
+                    timecode: event.timecode.toFixed(3),
+                    size: event.data.size,
+                    base64,
+                  })
+                );
+              });
+            }
+          };
+          updateDisplay();
+        },
+        start() {
+          if (!can.start()) {
+            return;
+          }
+          const time = performance.now();
+          const handler = () => {
+            log(
+              `Recording started in ${(performance.now() - time).toFixed(6)}ms`
+            );
+            recorder.removeEventListener("start", handler);
+          };
+          recorder.addEventListener("start", handler);
+          recorder.start(500);
+        },
+        stop() {
+          if (!can.stop()) {
+            return;
+          }
+          const time = performance.now();
+          const handler = () => {
+            log(
+              `Recording stopped in ${(performance.now() - time).toFixed(6)}ms`
+            );
+            recorder.removeEventListener("stop", handler);
+          };
+          recorder.addEventListener("stop", handler);
+          recorder.stop();
+        },
+        reset() {
+          if (!can.reset()) {
+            return;
+          }
+          for (const track of recorder.stream.getTracks()) {
+            track.stop();
+          }
+          queueMicrotask(() => {
+            recorder = undefined;
+            updateDisplay();
+          });
+        },
+      };
+
+      html.open.onclick = () => {
+        void functions.open();
+      };
+
+      html.start.onclick = () => {
+        functions.start();
+      };
+
+      html.stop.onclick = () => {
+        functions.stop();
+      };
+
+      html.reset.onclick = () => {
+        functions.reset();
+      };
+
+      updateDisplay();
+    </script>
+  </body>
+</html>
